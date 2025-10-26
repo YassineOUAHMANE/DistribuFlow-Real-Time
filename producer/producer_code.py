@@ -12,6 +12,9 @@ producer = KafkaProducer(bootstrap_servers='localhost:9092', value_serializer=la
 
 topic_name = 'events_logs'
 csv_files = ['UNSW-NB15_1.csv', 'UNSW-NB15_2.csv', 'UNSW-NB15_3.csv', 'UNSW-NB15_4.csv']
+# NOTE: you will need to download these files from this link and put them in the same directory as this script
+# download link: https://mega.nz/folder/EYcF3I7A#shlgKrU69INQxKbrZdDBxQ
+
 features_pd = pd.read_csv('NUSW-NB15_features.csv',encoding='utf-8', encoding_errors='ignore')
 ## take the column 'Name', it is the feature/column names for the csv files
 feature_names = features_pd['Name'].tolist()
