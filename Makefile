@@ -35,7 +35,7 @@ submit_spark_job:
 	#may take a while to execute (download dependencies, connect to master, dag scheduling, etc)
 	# it will process new message as they arrive in Kafka topic
 	# if no more message, it will just wait for new messages
-	kubectl exec -it spark-client -- /bin/bash /opt/spark/work-dir/spark_submit.sh
+	kubectl exec -it spark-client-0 -- /bin/bash /opt/spark/work-dir/spark_submit.sh
 
 
 stop-minikube:
