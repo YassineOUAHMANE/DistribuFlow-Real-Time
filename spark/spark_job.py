@@ -1,9 +1,12 @@
-
+import joblib
+import pandas as pd
+import sklearn
+import xgboost
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import col, from_json
-from pyspark.sql.types import StructType, StringType, DoubleType, IntegerType, FloatType
+from pyspark.sql.functions import col, from_json, pandas_udf, struct
+from pyspark.sql.types import StructType, StringType, DoubleType, IntegerType, FloatType, StructField
 
-# 1️⃣ Create Spark session
+# Spark session
 spark = (
     SparkSession.builder
     .appName("KafkaOrdersStream")
@@ -22,122 +25,111 @@ logs_raw = (
     .load()
 )
 
+def load_model(name):
+    return joblib.load(f"./pretrained_models/{name}")
 
-logs_str = logs_raw.selectExpr(
-    "CAST(value AS STRING) as json_str",
-    "topic", "partition", "offset", "timestamp"
+
+class BinaryClassificationModel:
+    def __init__(self):
+        self.label_encoders = load_model("label_encoders_binary_class.pkl")
+        self.classifier = load_model("xgboost_unsw_nb15_model_binary_class.pkl")
+
+    def predict(self, X_values):
+        try:   
+            categorical_cols_multi = ['proto', 'service', 'state']
+            label_encoders_binary_import = self.label_encoders
+
+            # Encode categorical columns in csv_test_set
+            for col in categorical_cols_multi:
+                le_binary = label_encoders_binary_import[col]
+                # Map unseen test values to 'Unknown' before transforming
+                X_values[col] = X_values[col].apply(
+                    lambda x: x if x in le_binary.classes_ else 'Unknown'
+                )
+                X_values[col] = le_binary.transform(X_values[col])
+            
+            y_values_pred = self.classifier.predict(X_values)
+        except ValueError:
+            y_values_pred = None
+        return y_values_pred
+
+
+fields = [
+    ("srcip", StringType()),
+    ("sport", IntegerType()),
+    ("dstip", StringType()),
+    ("dsport", IntegerType()),
+    ("proto", StringType()),
+    ("state", StringType()),
+    ("dur", FloatType()),
+    ("sbytes", IntegerType()),
+    ("dbytes", IntegerType()),
+    ("sttl", IntegerType()),
+    ("dttl", IntegerType()),
+    ("sloss", IntegerType()),
+    ("dloss", IntegerType()),
+    ("service", StringType()),
+    ("Sload", FloatType()),
+    ("Dload", FloatType()),
+    ("Spkts", IntegerType()),
+    ("Dpkts", IntegerType()),
+    ("swin", IntegerType()),
+    ("dwin", IntegerType()),
+    ("stcpb", IntegerType()),
+    ("dtcpb", IntegerType()),
+    ("smeansz", IntegerType()),
+    ("dmeansz", IntegerType()),
+    ("trans_depth", IntegerType()),
+    ("res_bdy_len", IntegerType()),
+    ("Sjit", FloatType()),
+    ("Djit", FloatType()),
+    ("Stime", IntegerType()),
+    ("Ltime", IntegerType()),
+    ("Sintpkt", FloatType()),
+    ("Dintpkt", FloatType()),
+    ("tcprtt", FloatType()),
+    ("synack", FloatType()),
+    ("ackdat", FloatType()),
+    ("is_sm_ips_ports", IntegerType()),
+    ("ct_state_ttl", IntegerType()),
+    ("ct_flw_http_mthd", IntegerType()),
+    ("is_ftp_login", IntegerType()),
+    ("ct_ftp_cmd", IntegerType()),
+    ("ct_srv_src", IntegerType()),
+    ("ct_srv_dst", IntegerType()),
+    ("ct_dst_ltm", IntegerType()),
+    ("ct_src_ltm", IntegerType()),
+    ("ct_src_dport_ltm", IntegerType()),
+    ("ct_dst_sport_ltm", IntegerType()),
+    ("ct_dst_src_ltm", IntegerType()),
+]
+schema = StructType([StructField(name, dtype, True) for name, dtype in fields])
+
+logs_df = logs_raw.select(
+    from_json(col("value").cast("string"), schema).alias("data")
+).select("data.*")
+
+classification_model = BinaryClassificationModel()
+broadcasted_model = spark.sparkContext.broadcast(classification_model)
+
+@pandas_udf(returnType=IntegerType())
+def predict_with_model(struct_col_batch: pd.Series) -> pd.Series:
+    model = broadcasted_model.value
+    X_values = pd.DataFrame(struct_col_batch.tolist())
+    predictions = model.predict(X_values)
+
+    if predictions is None:
+        return pd.Series([None] * len(X_values))
+    else:
+        return pd.Series(predictions)
+    
+predictions_df = logs_df.withColumn(
+    "Label",
+    predict_with_model(struct(*[col(c) for c, dtype in fields]))
 )
-
-
-schema = (
-    StructType()
-    .add("srcip", StringType())
-    .add("sport", IntegerType())
-    .add("dstip", StringType())
-    .add("dsport", IntegerType())
-    .add("proto", StringType())
-    .add("state", StringType())
-    .add("dur", FloatType())
-    .add("sbytes", IntegerType())
-    .add("dbytes", IntegerType())
-    .add("sttl", IntegerType())
-    .add("dttl", IntegerType())
-    .add("sloss", IntegerType())
-    .add("dloss", IntegerType())
-    .add("service", StringType())
-    .add("Sload", FloatType())
-    .add("Dload", FloatType())
-    .add("Spkts", IntegerType())
-    .add("Dpkts", IntegerType())
-    .add("swin", IntegerType())
-    .add("dwin", IntegerType())
-    .add("stcpb", IntegerType())
-    .add("dtcpb", IntegerType())
-    .add("smeansz", IntegerType())
-    .add("dmeansz", IntegerType())
-    .add("trans_depth", IntegerType())
-    .add("res_bdy_len", IntegerType())
-    .add("Sjit", FloatType())
-    .add("Djit", FloatType())
-    .add("Stime", IntegerType())
-    .add("Ltime", IntegerType())
-    .add("Sintpkt", FloatType())
-    .add("Dintpkt", FloatType())
-    .add("tcprtt", FloatType())
-    .add("synack", FloatType())
-    .add("ackdat", FloatType())
-    .add("is_sm_ips_ports", IntegerType())
-    .add("ct_state_ttl", IntegerType())
-    .add("ct_flw_http_mthd", IntegerType())
-    .add("is_ftp_login", IntegerType())
-    .add("ct_ftp_cmd", IntegerType())
-    .add("ct_srv_src", IntegerType())
-    .add("ct_srv_dst", IntegerType())
-    .add("ct_dst_ltm", IntegerType())
-    .add("ct_src_ltm", IntegerType())
-    .add("ct_src_dport_ltm", IntegerType())
-    .add("ct_dst_sport_ltm", IntegerType())
-    .add("ct_dst_src_ltm", IntegerType())
-)
-
-
-logs = logs_str.select(
-    from_json(col("json_str"), schema).alias("data"),
-    "topic", "partition", "offset", "timestamp"
-).select(
-    col("data.srcip"),
-    col("data.sport"),
-    col("data.dstip"),
-    col("data.dsport"),
-    col("data.proto"),
-    col("data.state"),
-    col("data.dur"),
-    col("data.sbytes"),
-    col("data.dbytes"),
-    col("data.sttl"),
-    col("data.dttl"),
-    col("data.sloss"),
-    col("data.dloss"),
-    col("data.service"),
-    col("data.Sload"),
-    col("data.Dload"),
-    col("data.Spkts"),
-    col("data.Dpkts"),
-    col("data.swin"),
-    col("data.dwin"),
-    col("data.stcpb"),
-    col("data.dtcpb"),
-    col("data.smeansz"),
-    col("data.dmeansz"),
-    col("data.trans_depth"),
-    col("data.res_bdy_len"),
-    col("data.Sjit"),
-    col("data.Djit"),
-    col("data.Stime"),
-    col("data.Ltime"),
-    col("data.Sintpkt"),
-    col("data.Dintpkt"),
-    col("data.tcprtt"),
-    col("data.synack"),
-    col("data.ackdat"),
-    col("data.is_sm_ips_ports"),
-    col("data.ct_state_ttl"),
-    col("data.ct_flw_http_mthd"),
-    col("data.is_ftp_login"),
-    col("data.ct_ftp_cmd"),
-    col("data.ct_srv_src"),
-    col("data.ct_srv_dst"),
-    col("data.ct_dst_ltm"),
-    col("data.ct_src_ltm"),
-    col("data.ct_src_dport_ltm"),
-    col("data.ct_dst_sport_ltm"),
-    col("data.ct_dst_src_ltm"),
-    "topic", "partition", "offset", "timestamp"
-)
-
 
 query = (
-    logs.writeStream
+    predictions_df.writeStream
     .format("console")
     .outputMode("append")
     .option("truncate", False)

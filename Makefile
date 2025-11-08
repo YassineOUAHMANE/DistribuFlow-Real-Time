@@ -29,6 +29,7 @@ launch_producer:
 submit_spark_job:
 	#copy the spark_job.py into the spark-client pod
 	kubectl cp spark/spark_job.py spark-client-0:/opt/spark/work-dir/spark_job.py
+	kubectl cp spark/pretrained_models/ spark-client-0:/opt/spark/work-dir/pretrained_models/
 	kubectl cp spark/spark_submit.sh spark-client-0:/opt/spark/work-dir/spark_submit.sh
 
 	#execute the spark_job.py inside the spark-client pod
@@ -42,4 +43,4 @@ stop-minikube:
 	minikube stop
 
 delete-resources:
-	kubectl all --all
+	kubectl delete all --all

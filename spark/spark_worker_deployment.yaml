@@ -16,7 +16,8 @@ spec:
       containers:
         - name: spark-worker
 #          image: apache/spark:3.5.0
-          image: rairacer/myspark:v1
+          #image: rairacer/myspark:v1
+          image: rabii10/spark-image:latest
           imagePullPolicy: IfNotPresent
 
           securityContext:

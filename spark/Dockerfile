@@ -5,7 +5,7 @@ USER root
 RUN apt-get update && \
     apt-get install -y python3 python3-distutils python3-venv python3-pip && \
     ln -s /usr/bin/python3 /usr/bin/python && \
-    pip3 install --no-cache-dir pyspark==3.5.0
+    pip3 install --no-cache-dir pyspark==3.5.0 joblib pandas scikit-learn xgboost
 
 
 
