@@ -20,7 +20,7 @@ spec:
         - name: spark-client
           #          image: apache/spark:3.5.0
           #image: rairacer/myspark:v1
-          image: rabii10/spark-image:latest
+          image: rabii10/spark-image:v2
           imagePullPolicy: IfNotPresent
 
           securityContext:

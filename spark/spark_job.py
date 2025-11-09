@@ -6,59 +6,10 @@ from pyspark.sql import SparkSession
 from pyspark.sql.functions import col, from_json, pandas_udf, struct
 from pyspark.sql.types import StructType, StringType, DoubleType, IntegerType, FloatType, StructField
 
-# Spark session
-spark = (
-    SparkSession.builder
-    .appName("KafkaOrdersStream")
-    .getOrCreate()
-)
-
-
-topics_name = "demo"
-
-logs_raw = (
-    spark.readStream
-    .format("kafka")
-    .option("kafka.bootstrap.servers", "kafka-broker-0.kafka-broker-service:19092")
-    .option("subscribe", topics_name)
-    .option("startingOffsets", "earliest")  # or earliest
-    .load()
-)
-
-def load_model(name):
-    return joblib.load(f"./pretrained_models/{name}")
-
-
-class BinaryClassificationModel:
-    def __init__(self):
-        self.label_encoders = load_model("label_encoders_binary_class.pkl")
-        self.classifier = load_model("xgboost_unsw_nb15_model_binary_class.pkl")
-
-    def predict(self, X_values):
-        try:   
-            categorical_cols_multi = ['proto', 'service', 'state']
-            label_encoders_binary_import = self.label_encoders
-
-            # Encode categorical columns in csv_test_set
-            for col in categorical_cols_multi:
-                le_binary = label_encoders_binary_import[col]
-                # Map unseen test values to 'Unknown' before transforming
-                X_values[col] = X_values[col].apply(
-                    lambda x: x if x in le_binary.classes_ else 'Unknown'
-                )
-                X_values[col] = le_binary.transform(X_values[col])
-            
-            y_values_pred = self.classifier.predict(X_values)
-        except ValueError:
-            y_values_pred = None
-        return y_values_pred
+from model_utils import BinaryClassificationModel, load_model
 
 
 fields = [
-    ("srcip", StringType()),
-    ("sport", IntegerType()),
-    ("dstip", StringType()),
-    ("dsport", IntegerType()),
     ("proto", StringType()),
     ("state", StringType()),
     ("dur", FloatType()),
@@ -69,24 +20,22 @@ fields = [
     ("sloss", IntegerType()),
     ("dloss", IntegerType()),
     ("service", StringType()),
-    ("Sload", FloatType()),
-    ("Dload", FloatType()),
-    ("Spkts", IntegerType()),
-    ("Dpkts", IntegerType()),
+    ("sload", FloatType()),
+    ("dload", FloatType()),
+    ("spkts", IntegerType()),
+    ("dpkts", IntegerType()),
     ("swin", IntegerType()),
     ("dwin", IntegerType()),
     ("stcpb", IntegerType()),
     ("dtcpb", IntegerType()),
-    ("smeansz", IntegerType()),
-    ("dmeansz", IntegerType()),
+    ("smean", IntegerType()),
+    ("dmean", IntegerType()),
     ("trans_depth", IntegerType()),
-    ("res_bdy_len", IntegerType()),
-    ("Sjit", FloatType()),
-    ("Djit", FloatType()),
-    ("Stime", IntegerType()),
-    ("Ltime", IntegerType()),
-    ("Sintpkt", FloatType()),
-    ("Dintpkt", FloatType()),
+    ("response_body_len", IntegerType()),
+    ("sjit", FloatType()),
+    ("djit", FloatType()),
+    ("sinpkt", FloatType()),
+    ("dinpkt", FloatType()),
     ("tcprtt", FloatType()),
     ("synack", FloatType()),
     ("ackdat", FloatType()),
@@ -105,36 +54,63 @@ fields = [
 ]
 schema = StructType([StructField(name, dtype, True) for name, dtype in fields])
 
-logs_df = logs_raw.select(
-    from_json(col("value").cast("string"), schema).alias("data")
-).select("data.*")
 
-classification_model = BinaryClassificationModel()
-broadcasted_model = spark.sparkContext.broadcast(classification_model)
 
-@pandas_udf(returnType=IntegerType())
-def predict_with_model(struct_col_batch: pd.Series) -> pd.Series:
-    model = broadcasted_model.value
-    X_values = pd.DataFrame(struct_col_batch.tolist())
-    predictions = model.predict(X_values)
-
-    if predictions is None:
-        return pd.Series([None] * len(X_values))
-    else:
-        return pd.Series(predictions)
     
-predictions_df = logs_df.withColumn(
-    "Label",
-    predict_with_model(struct(*[col(c) for c, dtype in fields]))
-)
 
-query = (
-    predictions_df.writeStream
-    .format("console")
-    .outputMode("append")
-    .option("truncate", False)
-    .option("checkpointLocation", "/tmp/checkpoints/logs-stream")  # shared folder or local
-    .start()
-)
+if __name__ == "__main__":
+    # Spark session
+    spark = (
+        SparkSession.builder
+        .appName("KafkaOrdersStream")
+        .getOrCreate()
+    )
+    topics_name = "demo"
 
-query.awaitTermination()
+    logs_raw = (
+        spark.readStream
+        .format("kafka")
+        .option("kafka.bootstrap.servers", "kafka-broker-0.kafka-broker-service:19092")
+        .option("subscribe", topics_name)
+        .option("startingOffsets", "earliest")  # or earliest
+        .load()
+    )
+
+    logs_df = logs_raw.select(
+        from_json(col("value").cast("string"), schema).alias("data")
+    ).select("data.*")
+
+    logs_df = logs_df.fillna(0)
+
+    encoder_model = load_model("label_encoders_binary_class.pkl")
+    classifier_model = load_model("xgboost_unsw_nb15_model_binary_class.pkl")
+
+    classification_model = BinaryClassificationModel(encoder_model, classifier_model)
+    broadcasted_model = spark.sparkContext.broadcast(classification_model)
+
+    @pandas_udf(returnType=IntegerType())
+    def predict_with_model(X_values_batch: pd.DataFrame) -> pd.Series:
+        model = broadcasted_model.value
+        predictions = model.predict(X_values_batch)
+
+        if predictions is None:
+            return pd.Series([None] * len(X_values_batch))
+        else:
+            return pd.Series(predictions)
+
+    predictions_df = logs_df.withColumn(
+        "label",
+        predict_with_model(struct(*[col(c) for c, dtype in fields]))
+    )
+
+    query = (
+        predictions_df.writeStream
+        .format("console")
+        .outputMode("append")
+        .option("truncate", False)
+        .option("checkpointLocation", "/tmp/checkpoints/logs-stream")  # shared folder or local
+        .start()
+    )
+
+    query.awaitTermination()
+

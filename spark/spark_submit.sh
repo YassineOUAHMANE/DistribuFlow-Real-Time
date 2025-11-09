@@ -10,4 +10,5 @@ export SPARK_LOG_LEVEL=WARN
   --deploy-mode client \
   --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0 \
   --name "testApp" \
+  --py-files model_utils.py \
   spark_job.py
