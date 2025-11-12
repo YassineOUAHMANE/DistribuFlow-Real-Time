@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyc
+
+# Datasets
+*.csv
+*.zip
+events_logs_dataset/
+
+# Logs
+*.log
+
+# Temporary files
+*.tmp
+cd
+git
+9090
+
+# IDE
+.vscode/
+.idea/
