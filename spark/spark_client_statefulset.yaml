@@ -10,7 +10,6 @@ spec:
     matchLabels:
       app: spark-client
 
-  #POD SPEC
   template:
     metadata:
       labels:
@@ -18,8 +17,6 @@ spec:
     spec:
       containers:
         - name: spark-client
-          #          image: apache/spark:3.5.0
-          #image: rairacer/myspark:v1
           image: rabii10/spark-image:v2
           imagePullPolicy: IfNotPresent
 
@@ -27,10 +24,26 @@ spec:
             runAsUser: 0
             runAsGroup: 0
 
-          command: [ "/bin/bash","-c" ]
+          env:
+            - name: SPARK_LOG_LEVEL
+              value: "WARN"
+
+          command: ["/bin/bash","-c"]
           args:
             - |
-              apt-get update && apt-get install -y nano iputils-ping dnsutils
+              set -ex
+
+              # Outils utiles dans le pod
+              apt-get update
+              apt-get install -y nano iputils-ping dnsutils
+              apt-get clean
+              rm -rf /var/lib/apt/lists/*
+
+              # 👉 Installation de joblib (et autres libs Python si tu veux)
+              # Si ton image a déjà pip, ça marche direct. Sinon, ajoute son install dans le Dockerfile.
+              python3 -m pip install --no-cache-dir pandas joblib numpy
+
+              # Garder le pod vivant pour lancer spark-submit à la main
               sleep infinity
 
           ports:

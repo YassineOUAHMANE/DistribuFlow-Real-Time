@@ -1,10 +1,9 @@
-
 export SPARK_LOG_LEVEL=WARN
 
 /opt/spark/bin/spark-submit \
   --master spark://spark-master-service:7077 \
-  --conf spark.pyspark.python=/usr/bin/python \
-  --conf spark.pyspark.driver.python=/usr/bin/python \
+  --conf spark.pyspark.python=python3 \
+  --conf spark.pyspark.driver.python=python3 \
   --conf spark.driver.host=spark-client-0.spark-client-service \
   --conf spark.driver.port=8081 \
   --deploy-mode client \
