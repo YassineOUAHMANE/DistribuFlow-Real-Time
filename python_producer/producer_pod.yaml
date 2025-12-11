@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: python-producer
+spec:
+  containers:
+    - name: producer
+      image: akhmyassine/producer-img:v1  # Votre nouvelle image
+      imagePullPolicy: Always
+      # On garde juste une commande simple si on veut debug, sinon l'image lance le script seule
+      command: ["/bin/bash", "-c", "sleep infinity"]

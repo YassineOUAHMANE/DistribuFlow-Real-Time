@@ -1,0 +1,58 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: spark-client
+
+spec:
+  serviceName: "spark-client-service"
+  replicas: 1
+  selector:
+    matchLabels:
+      app: spark-client
+
+  #POD SPEC
+  template:
+    metadata:
+      labels:
+        app: spark-client
+    spec:
+      containers:
+        - name: spark-client
+          #          image: apache/spark:3.5.0
+          #image: rairacer/myspark:v1
+          image: rabii10/spark-image:v2
+          imagePullPolicy: IfNotPresent
+
+          securityContext:
+            runAsUser: 0
+            runAsGroup: 0
+
+          command: [ "/bin/bash","-c" ]
+          args:
+            - |
+              apt-get update && apt-get install -y nano iputils-ping dnsutils
+              sleep infinity
+
+          ports:
+            - containerPort: 8081
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "512Mi"
+            limits:
+              cpu: "1"
+              memory: "1Gi"
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: spark-client-service
+spec:
+  clusterIP: None
+  selector:
+    app: spark-client
+  ports:
+    - port: 8081
+      targetPort: 8081
+      protocol: TCP

@@ -1,0 +1,66 @@
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: spark-worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: spark-worker
+  template:
+    metadata:
+      labels:
+        app: spark-worker
+    spec:
+      containers:
+        - name: spark-worker
+#          image: apache/spark:3.5.0
+          #image: rairacer/myspark:v1
+          image: rabii10/spark-image:v2
+          imagePullPolicy: IfNotPresent
+
+          securityContext:
+            runAsUser: 0
+            runAsGroup: 0
+
+          env:
+            - name: SPARK_MODE
+              value: worker
+            - name: SPARK_MASTER_URL
+              value: spark://spark-master-service.default.svc.cluster.local:7077   # reach master via K8s DNS
+            - name: SPARK_WORKER_WEBUI_PORT
+              value: "8081"
+            - name: SPARK_WORKER_MEMORY
+              value: "1G"
+            - name: SPARK_WORKER_CORES
+              value: "1"
+
+          command: [ "/bin/bash","-c" ]
+          args:
+            - |
+              /opt/spark/sbin/start-worker.sh spark://spark-master-service:7077 &&
+              tail -f /opt/spark/logs/spark--org.apache.spark.deploy.worker*.out
+
+          ports:
+            - containerPort: 8081
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "512Mi"
+            limits:
+              cpu: "1"
+              memory: "1Gi"
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: spark-worker-service
+spec:
+  type: ClusterIP
+  selector:
+    app: spark-worker
+  ports:
+    - port: 8081
+      targetPort: 8081

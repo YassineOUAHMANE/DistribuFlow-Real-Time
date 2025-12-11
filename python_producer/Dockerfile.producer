@@ -1,0 +1,25 @@
+# Utiliser une image Python robuste
+FROM python:3.11-slim
+
+# Installer les outils système UNE SEULE FOIS lors de la construction
+RUN apt-get update && apt-get install -y \
+    wget \
+    curl \
+    dnsutils \
+    iputils-ping \
+    && rm -rf /var/lib/apt/lists/*
+
+# Installer MEGAcmd
+RUN wget https://mega.nz/linux/repo/Debian_12/amd64/megacmd-Debian_12_amd64.deb && \
+    apt-get update && apt-get install -y ./megacmd-Debian_12_amd64.deb && \
+    rm megacmd-Debian_12_amd64.deb
+
+# Installer les librairies Python
+RUN pip install --no-cache-dir confluent-kafka pandas numpy
+
+# Copier le script
+COPY producer.py /app/producer.py
+
+# Commande par défaut (garder le container en vie pour debug, ou lancer le script)
+WORKDIR /app
+CMD ["python3", "producer.py"]

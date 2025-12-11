@@ -1,0 +1,70 @@
+
+
+---
+# 2. Spark Master Deployment (1 replica)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: spark-master
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: spark-master
+  template:
+    metadata:
+      labels:
+        app: spark-master
+    spec:
+      containers:
+        - name: spark-master
+#          image: apache/spark:3.5.0
+          #image: rairacer/myspark:v1
+          image: rabii10/spark-image:v2
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: SPARK_MODE
+              value: master
+            - name: SPARK_MASTER_PORT
+              value: "7077"
+            - name: SPARK_MASTER_WEBUI_PORT
+              value: "8080"
+
+          command: [ "/bin/bash","-c" ]
+          args:
+            - |
+              /opt/spark/sbin/start-master.sh &&
+              tail -f /opt/spark/logs/spark--org.apache.spark.deploy.master*.out
+#              exec /opt/spark/bin/spark-class org.apache.spark.deploy.master.Master \
+#              --host 0.0.0.0 --port 7077 --webui-port 8080
+
+          # ===== Define exposed port ========
+          ports:
+            - containerPort: 7077
+            - containerPort: 8080
+          # For debugging / logs
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "512Mi"
+            limits:
+              cpu: "1"
+              memory: "1Gi"
+
+ # ======= CLUSTER IP => PROVIDE STABLE DNS NAME FOR SPARK MASTER ========
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: spark-master-service
+spec:
+  type: ClusterIP
+  selector:
+    app: spark-master
+  ports:
+    - name: spark
+      port: 7077        # for cluster connection
+      targetPort: 7077
+    - name: webui
+      port: 8080        #  for web UI
+      targetPort: 8080
