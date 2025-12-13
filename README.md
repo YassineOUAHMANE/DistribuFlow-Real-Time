@@ -1,93 +1,142 @@
-# 3A_projet_systeme_distribue
+# Déploiment sur GCP
 
+Ce projet déploie une architecture complète de traitement de données en temps réel sur Google Cloud Platform (GCP). Il utilise **Terraform** pour l'infrastructure, **Ansible** pour la configuration, et **Kubernetes** pour l'orchestration des conteneurs (Kafka & Spark).
 
+---
 
-## Getting started
+## Partie 1 : Configuration Locale
 
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
+Ces étapes provisionnent les VMs et installent les dépendances logicielles.
 
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
-
-## Add your files
-
-- [ ] [Create](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#create-a-file) or [upload](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#upload-a-file) files
-- [ ] [Add files using the command line](https://docs.gitlab.com/topics/git/add_files/#add-files-to-a-git-repository) or push an existing Git repository with the following command:
-
+### 1. Déploiement de l'infrastructure (Terraform)
+```bash
+cd infra/terraform
+terraform apply
+# Tapez 'yes' pour confirmer.
+# ⚠️ IMPORTANT : Notez les IPs affichées à la fin (Gateway & Master).
 ```
-cd existing_repo
-git remote add origin https://gitlab.ensimag.fr/ngutruon/3a_projet_systeme_distribue.git
-git branch -M main
-git push -uf origin main
+### 2. Configuration des machines (Ansible)
+
+Installation de Docker, Kubernetes et des outils réseaux.
+
+```bash
+cd ../config
+# La variable ANSIBLE_HOST_KEY_CHECKING=False évite les blocages liés aux nouvelles clés SSH
+ANSIBLE_HOST_KEY_CHECKING=False ansible-playbook -i inventory.ini playbook.yml
 ```
 
-## Integrate with your tools
+### 3. Préparation SSH & Transfert de fichiers
 
-- [ ] [Set up project integrations](https://gitlab.ensimag.fr/ngutruon/3a_projet_systeme_distribue/-/settings/integrations)
+Utilisation de l'agent SSH pour faciliter le passage par la Gateway.
 
-## Collaborate with your team
+```bash
+# Charger la clé dans l'agent
+eval $(ssh-agent -s)
+ssh-add config/id_rsa_gcp
 
-- [ ] [Invite team members and collaborators](https://docs.gitlab.com/ee/user/project/members/)
-- [ ] [Create a new merge request](https://docs.gitlab.com/ee/user/project/merge_requests/creating_merge_requests.html)
-- [ ] [Automatically close issues from merge requests](https://docs.gitlab.com/ee/user/project/issues/managing_issues.html#closing-issues-automatically)
-- [ ] [Enable merge request approvals](https://docs.gitlab.com/ee/user/project/merge_requests/approvals/)
-- [ ] [Set auto-merge](https://docs.gitlab.com/user/project/merge_requests/auto_merge/)
+# Copier le projet vers le Master (via la Gateway)
+# Remplacer <IP_GATEWAY> et <IP_MASTER> par les vraies valeurs
+scp -r -J ubuntu@<IP_GATEWAY> apache_kafka/ python_producer/ scripts/ spark/ ubuntu@<IP_MASTER>:~/project
+```
 
-## Test and Deploy
+### 4. Connexion au Master
 
-Use the built-in continuous integration in GitLab.
+```bash
+ssh -A -J ubuntu@<IP_GATEWAY> ubuntu@<IP_MASTER>
+```
 
-- [ ] [Get started with GitLab CI/CD](https://docs.gitlab.com/ee/ci/quick_start/)
-- [ ] [Analyze your code for known vulnerabilities with Static Application Security Testing (SAST)](https://docs.gitlab.com/ee/user/application_security/sast/)
-- [ ] [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/ee/topics/autodevops/requirements.html)
-- [ ] [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/ee/user/clusters/agent/)
-- [ ] [Set up protected environments](https://docs.gitlab.com/ee/ci/environments/protected_environments.html)
+## Partie 2 : Configuration du Cluster (Sur le Master)
 
-***
+Toutes les commandes suivantes s'exécutent dans le terminal du Master.
 
-# Editing this README
+```bash
+cd ~/project
+```
 
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thanks to [makeareadme.com](https://www.makeareadme.com/) for this template.
+### 1. Initialisation du Stockage & Réseau
 
-## Suggestions for a good README
+Indispensable pour que Kafka puisse stocker ses données et que les pods communiquent.
 
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
+```bash
+# Installer le provisionneur de stockage local
+kubectl apply -f [https://raw.githubusercontent.com/rancher/local-path-provisioner/master/deploy/local-path-storage.yaml](https://raw.githubusercontent.com/rancher/local-path-provisioner/master/deploy/local-path-storage.yaml)
 
-## Name
-Choose a self-explaining name for your project.
+# Définir ce stockage comme "default"
+kubectl patch storageclass local-path -p '{"metadata": {"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}'
 
-## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
+# Redémarrer le DNS (Correctif Firewall GCP)
+kubectl delete pod -n kube-system -l k8s-app=kube-dns
+```
 
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
+### 2. Déploiement des Services
 
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
+Apache Kafka :
 
-## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
+```bash
+kubectl apply -f apache_kafka/kafka_controller_statefulset.yaml
+kubectl apply -f apache_kafka/kafka_broker_statefulset.yaml
+```
 
-## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
+Apache Spark :
 
-## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
+```bash
+kubectl apply -f spark/spark_master_deployment.yaml
+kubectl apply -f spark/spark_worker_deployment.yaml
+kubectl apply -f spark/spark_client_statefulset.yaml
+```
 
-## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
+Producteur de Données :
 
-## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
+```bash
+kubectl apply -f app-data/python_producer/producer_pod.yaml
+```
 
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
+## Partie 3 : Préparation des Jobs
 
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
+Injection des scripts Python et des modèles ML dans les Pods actifs.
+###1. Configuration du Client Spark
 
-## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
+```bash
+kubectl cp spark/spark_submit.sh spark-client-0:/opt/spark/work-dir/spark_submit.sh
+kubectl cp spark/spark_job.py spark-client-0:/opt/spark/work-dir/spark_job.py
+kubectl cp spark/model_utils.py spark-client-0:/opt/spark/work-dir/model_utils.py
+kubectl cp spark/pretrained_models/ spark-client-0:/opt/spark/work-dir/pretrained_models/
+```
 
-## License
-For open source projects, say how it is licensed.
+### 2. Configuration du Producteur
 
-## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+```bash
+kubectl cp python_producer/producer.py python-producer:/producer.py
+```
+
+## Partie 4 : Exécution (Démo)
+
+Ouvrez deux terminaux connectés au Master pour visualiser le flux en temps réel.
+
+**Terminal A :** Lancer le Traitement Spark (Consommateur)
+
+Ce job va lire les données depuis Kafka et appliquer le modèle de prédiction.
+
+```bash
+kubectl exec -it spark-client-0 -- /bin/bash /opt/spark/work-dir/spark_submit.sh
+```
+
+**Terminal B :** Lancer la Production de Données
+
+Ce script génère des logs et les envoie dans Kafka.
+
+```bash
+kubectl exec -it python-producer -- python3 /producer.py
+```
+
+## 🚑 Dépannage
+
+Si les Pods Kafka restent bloqués en statut Pending, lancez un nettoyage complet des volumes :
+
+```bash
+kubectl delete pod kafka-broker-0 kafka-controller-0
+kubectl delete pvc --all
+# Les pods redémarreront automatiquement avec le nouveau stockage.
+```
+
+
