@@ -1,0 +1,66 @@
+---
+# Setup Prometheus + Grafana for Cybersecurity Attack Detection Project
+- name: Setup Prometheus stack on Minikube
+  hosts: localhost
+  connection: local
+  tasks:
+    - name: Create monitoring namespace
+      shell: kubectl create namespace monitoring
+      ignore_errors: yes
+      
+    - name: Check if Helm is installed
+      shell: which helm
+      register: helm_check
+      ignore_errors: yes
+      
+    - name: Download Helm installation script
+      get_url:
+        url: https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3
+        dest: /tmp/get-helm-3
+        mode: '0755'
+      when: helm_check.rc != 0
+      
+    - name: Install Helm
+      shell: /tmp/get-helm-3
+      when: helm_check.rc != 0
+      
+    - name: Add Prometheus community Helm repository
+      shell: helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+      
+    - name: Update Helm repositories
+      shell: helm repo update
+      
+    - name: Install kube-prometheus-stack
+      shell: |
+        helm install kube-prometheus-stack prometheus-community/kube-prometheus-stack \
+          --namespace monitoring \
+          --set prometheus.prometheusSpec.retention=30d \
+          --set prometheus.prometheusSpec.storageSpec.volumeClaimTemplate.spec.resources.requests.storage=10Gi \
+          --set grafana.adminPassword=admin \
+          --set grafana.service.type=NodePort
+      
+    - name: Wait for all monitoring pods to be ready
+      shell: kubectl wait --for=condition=ready pod --all -n monitoring --timeout=600s
+      
+    - name: Get Grafana NodePort
+      shell: kubectl get svc kube-prometheus-stack-grafana -n monitoring -o jsonpath='{.spec.ports[0].nodePort}'
+      register: grafana_port
+      
+    - name: Get Minikube IP
+      shell: minikube ip
+      register: minikube_ip
+      
+    - name: Display access information
+      debug:
+        msg:
+          - "=========================================="
+          - "Monitoring Stack Deployed Successfully!"
+          - "=========================================="
+          - "Grafana URL: http://{{ minikube_ip.stdout }}:{{ grafana_port.stdout }}"
+          - "Username: admin"
+          - "Password: admin"
+          - ""
+          - "To access via port-forward instead:"
+          - "kubectl port-forward -n monitoring svc/kube-prometheus-stack-grafana 3000:80"
+          - "Then open: http://localhost:3000"
+          - "=========================================="

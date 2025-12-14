@@ -54,6 +54,35 @@ submit_spark_job:
 	$(K) exec -it spark-client-0 -- /bin/bash /opt/spark/work-dir/spark_submit.sh
 
 
+# ============================================
+# MONITORING TARGETS (Added by Wail)
+# ============================================
+
+setup-monitoring:
+	kubectl create namespace monitoring || echo "Namespace already exists"
+	helm repo add prometheus-community https://prometheus-community.github.io/helm-charts || echo "Repo already added"
+	helm repo update
+	helm install kube-prometheus-stack prometheus-community/kube-prometheus-stack --namespace monitoring --set prometheus.prometheusSpec.retention=30d --set grafana.adminPassword=admin --set grafana.service.type=NodePort --wait --timeout=10m
+	@echo "=========================================="
+	@echo "Monitoring deployed successfully!"
+	@echo "Access Grafana: make access-grafana"
+	@echo "Then open: http://localhost:3000"
+	@echo "Username: admin | Password: admin"
+	@echo "=========================================="
+
+access-grafana:
+	@echo "Opening Grafana at http://localhost:3000"
+	@echo "Username: admin | Password: admin"
+	kubectl port-forward -n monitoring svc/kube-prometheus-stack-grafana 3000:80
+
+access-prometheus:
+	@echo "Opening Prometheus at http://localhost:9090"
+	kubectl port-forward -n monitoring svc/kube-prometheus-stack-prometheus 9090:9090
+
+delete-monitoring:
+	helm uninstall kube-prometheus-stack -n monitoring || echo "Stack not found"
+	kubectl delete namespace monitoring || echo "Namespace not found"
+	
 # ------- Aides -------
 status:
 	@echo "== Pods ==" && $(K) get pods -o wide
