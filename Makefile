@@ -37,19 +37,19 @@ start-spark-pods:
 	$(K) wait --for=condition=ready pod -l app=spark-client --timeout=180s
 
 # ------- Producteur Python -------
-start_python_producer:
+start-python-producer:
 	$(K) apply -f $(PRODUCER_DIR)/producer_deployment.yaml
 	$(K) rollout status deploy/python-producer --timeout=300s
 	$(K) logs -f deployment/python-producer
 
 # ------- Job Spark -------
-submit_spark_job:
+submit-spark-job:
 	# copie le job et le script de submit dans le pod client
-	minikube kubectl -- -n $(NS) cp $(SPARK_DIR)/spark_job.py spark-client-0:/opt/spark/work-dir/spark_job.py
-	minikube kubectl -- -n $(NS) cp $(SPARK_DIR)/model_utils.py spark-client-0:/opt/spark/work-dir/model_utils.py
-	minikube kubectl -- -n $(NS) cp $(SPARK_DIR)/pretrained_models/ spark-client-0:/opt/spark/work-dir/pretrained_models/
+	$(K) cp $(SPARK_DIR)/spark_job.py spark-client-0:/opt/spark/work-dir/spark_job.py
+	$(K) cp $(SPARK_DIR)/model_utils.py spark-client-0:/opt/spark/work-dir/model_utils.py
+	$(K) cp $(SPARK_DIR)/pretrained_models/ spark-client-0:/opt/spark/work-dir/pretrained_models/
 
-	minikube kubectl -- -n $(NS) cp $(SPARK_DIR)/spark_submit.sh spark-client-0:/opt/spark/work-dir/spark_submit.sh
+	$(K) cp $(SPARK_DIR)/spark_submit.sh spark-client-0:/opt/spark/work-dir/spark_submit.sh
 	# lance le job (peut prendre du temps la 1ère fois : téléchargement des packages)
 	$(K) exec -it spark-client-0 -- /bin/bash /opt/spark/work-dir/spark_submit.sh
 
@@ -57,9 +57,11 @@ submit_spark_job:
 # ============================================
 # MONITORING TARGETS (Added by Wail)
 # ============================================
-
+# NOTE: before running this
+# if you are on windows install helm (choco install kubernetes-helm)
+# if you are on linux install helm (see https://helm.sh/docs/intro/install/#from-apt-debianubuntu)
 setup-monitoring:
-	kubectl create namespace monitoring || echo "Namespace already exists"
+	$(K) create namespace monitoring || echo "Namespace already exists"
 	helm repo add prometheus-community https://prometheus-community.github.io/helm-charts || echo "Repo already added"
 	helm repo update
 	helm install kube-prometheus-stack prometheus-community/kube-prometheus-stack --namespace monitoring --set prometheus.prometheusSpec.retention=30d --set grafana.adminPassword=admin --set grafana.service.type=NodePort --wait --timeout=10m
@@ -73,15 +75,15 @@ setup-monitoring:
 access-grafana:
 	@echo "Opening Grafana at http://localhost:3000"
 	@echo "Username: admin | Password: admin"
-	kubectl port-forward -n monitoring svc/kube-prometheus-stack-grafana 3000:80
+	$(K) port-forward -n monitoring svc/kube-prometheus-stack-grafana 3000:80
 
 access-prometheus:
 	@echo "Opening Prometheus at http://localhost:9090"
-	kubectl port-forward -n monitoring svc/kube-prometheus-stack-prometheus 9090:9090
+	$(K) port-forward -n monitoring svc/kube-prometheus-stack-prometheus 9090:9090
 
 delete-monitoring:
 	helm uninstall kube-prometheus-stack -n monitoring || echo "Stack not found"
-	kubectl delete namespace monitoring || echo "Namespace not found"
+	$(K) delete namespace monitoring || echo "Namespace not found"
 	
 # ------- Aides -------
 status:
@@ -91,11 +93,11 @@ status:
 
 pf-master:
 	# UI Master sur http://localhost:8080
-	minikube kubectl -- -n $(NS) port-forward svc/spark-master-service 8080:8080
+	$(K) port-forward svc/spark-master-service 8080:8080
 
 pf-driver:
 	# UI Driver sur http://localhost:4040
-	minikube kubectl -- -n $(NS) port-forward pod/spark-client-0 4040:4040
+	$(K) port-forward pod/spark-client-0 4040:4040
 
 # ------- Stop/Clean -------
 stop-minikube:
@@ -113,5 +115,5 @@ delete-resources:
 
 # GROS reset (attention: détruit aussi les PVC)
 nuke:
-	-minikube kubectl -- -n $(NS) delete all --all
-	-minikube kubectl -- -n $(NS) delete pvc --all
+	$(K) delete all --all
+	$(K) delete pvc --all
